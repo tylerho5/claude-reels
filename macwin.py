@@ -2,14 +2,14 @@
 """macOS window-server helpers for claude-reels. Used by reels.sh.
 
   macwin.py display              print the main display bounds as "x y w h"
-  macwin.py float --marker TEXT  pin every window whose owner command line
-                                 contains TEXT above other windows
+  macwin.py float --marker TEXT  ask the window server to keep windows whose owner
+                                 command line contains TEXT above other windows
 
-Pinning uses the private SkyLight API CGSSetWindowLevel, the same call yabai
-uses. macOS only honours it for a process with Accessibility permission
-(System Settings -> Privacy & Security -> Accessibility), so without that
-permission the window still opens at the right size and place but stays a
-normal window. `float` reports which of the two happened.
+Pinning sets the window level through the private SkyLight API CGSSetWindowLevel,
+the same call yabai uses. Recent macOS releases accept the change and then ignore
+it, so treat the pin as best effort: the window still opens at the right size and
+place. `--hold` keeps the request asserted for as long as the window lives, which
+is what a release where the level actually applies needs.
 """
 import argparse
 import ctypes
@@ -137,7 +137,13 @@ def window_level(number):
     return level.value
 
 
-def float_windows(marker, level=None, timeout=0.0):
+def float_windows(marker, level=None, timeout=0.0, hold=False, interval=1.0):
+    """Set the level on matching windows.
+
+    The override lives as long as this process's window-server connection, and
+    reverts when the process exits, so holding the pin means staying alive and
+    re-asserting it until the window goes away.
+    """
     level = CG.CGWindowLevelForKey(FLOATING_LEVEL_KEY) if level is None else level
     found = find_windows(marker, timeout)
     if not found:
@@ -145,20 +151,33 @@ def float_windows(marker, level=None, timeout=0.0):
         return 1
 
     conn = SKY.CGSMainConnectionID()
-    for w in found:
-        SKY.CGSSetWindowLevel(conn, w["number"], level)
+    first = True
+    while True:
+        for w in found:
+            SKY.CGSSetWindowLevel(conn, w["number"], level)
+        if first:
+            report(found, level)
+            first = False
+        if not hold:
+            return 0
+        time.sleep(interval)
+        found = find_windows(marker)
+        if not found:
+            print("reels window closed, releasing pin")
+            return 0
 
+
+def report(found, level):
     for w in found:
         now = window_level(w["number"])
         if now == level:
-            print(f"floating: window {w['number']} level {now}")
+            print(f"pinned window {w['number']} at level {now}")
         elif not AX.AXIsProcessTrusted():
             print(f"window {w['number']} opened, but macOS only pins windows above other apps "
                   "for processes with Accessibility permission. Grant it to the app running "
                   "Claude Code: System Settings > Privacy & Security > Accessibility")
         else:
-            print(f"window {w['number']} level change did not stick (wanted {level}, got {now})")
-    return 0
+            print(f"window {w['number']} would not take level {level} (still {now})")
 
 
 def main():
@@ -171,12 +190,14 @@ def main():
     p.add_argument("--marker", required=True, help="text that appears in the owner's command line")
     p.add_argument("--level", type=int, default=None, help="CGWindowLevel (default: floating)")
     p.add_argument("--wait", type=float, default=0.0, help="seconds to wait for the window (default 0)")
+    p.add_argument("--hold", action="store_true",
+                   help="keep the pin asserted until the window closes (needs this process alive)")
 
     args = parser.parse_args()
     if args.cmd == "display":
         print(*display_bounds())
         return 0
-    return float_windows(args.marker, args.level, args.wait)
+    return float_windows(args.marker, args.level, args.wait, args.hold)
 
 
 if __name__ == "__main__":

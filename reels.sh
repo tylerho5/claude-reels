@@ -16,6 +16,15 @@ HERE=$(cd -- "$(dirname -- "$0")" && pwd)
 PY=$(command -v python3 || echo /usr/bin/python3)
 TMP="${TMPDIR:-/tmp}"
 LOG="${TMP%/}/claude-reels.log"
+HOLDER="macwin.py float --marker $PROFILE"
+
+# The pin dies with the process that set it, so hold it from a sleeping process
+# for as long as the window is open.
+hold_pin() {
+  pkill -f -- "$HOLDER" 2>/dev/null
+  nohup "$PY" "$HERE/macwin.py" float --marker "$PROFILE" --wait "${1:-0}" --hold >>"$LOG" 2>&1 &
+  disown 2>/dev/null
+}
 
 open_window() {
   if [ ! -x "$CHROME" ]; then
@@ -26,6 +35,7 @@ open_window() {
   # Already open: just pin it above other windows again.
   if out=$("$PY" "$HERE/macwin.py" float --marker "$PROFILE" 2>&1); then
     printf '%s\n' "$out"
+    hold_pin
     return 0
   fi
 
@@ -47,13 +57,13 @@ open_window() {
   disown 2>/dev/null
 
   # Pin the window once it exists. Out of process so a hook returns immediately.
-  nohup "$PY" "$HERE/macwin.py" float --marker "$PROFILE" --wait 20 >>"$LOG" 2>&1 &
-  disown 2>/dev/null
+  hold_pin 30
   echo "opening $URL (log: $LOG)"
 }
 
 # Only processes started with our own profile folder, never your normal Chrome.
 close_window() {
+  pkill -f -- "$HOLDER" 2>/dev/null
   if pkill -f -- "--user-data-dir=$PROFILE"; then
     echo "closed"
   fi

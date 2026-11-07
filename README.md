@@ -29,7 +29,7 @@ chmod +x ~/.claude/hooks/reels.sh ~/.claude/hooks/macwin.py
 }
 ```
 
-macOS only lets a process pin a window above other windows if it has Accessibility permission. Grant it to whichever app runs Claude Code (Terminal, iTerm2, the Claude Code app) under System Settings → Privacy & Security → Accessibility. Without it the window still opens at the right size and place on every prompt, it just drops behind other apps when you switch. `reels.sh open` prints which of the two happened, and the launch is logged to `$TMPDIR/claude-reels.log`.
+Always-on-top is best effort on macOS. `macwin.py float` raises the window's level through the window server — the same private call yabai uses — and `reels.sh` keeps that request asserted from a small background process for as long as the window is open. Recent macOS releases accept the change and then ignore it, so the window can still end up behind other apps. It does open every prompt, right-aligned at 390x844, and takes focus. For the level to have any chance of applying, the app that runs Claude Code (Terminal, iTerm2, the Claude Code app) needs Accessibility permission under System Settings → Privacy & Security → Accessibility. Launch output goes to `$TMPDIR/claude-reels.log`.
 
 ## Install on Windows
 
